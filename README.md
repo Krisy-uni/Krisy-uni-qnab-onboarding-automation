@@ -27,12 +27,45 @@ POST http://127.0.0.1:5000/api/finance/invite
 Content-Type: application/json
 X-Integration-Key: <configured-shared-key>
 
-{"case_id": 123, "employee_email": "ape.example@example.test"}
+{"case_id": 123, "email": "ape.example@example.test"}
 ```
 
 Flask sends a unique link using the SMTP settings. The employee completes an online form; Flask validates entries and updates two pre-existing **string process variables** in the correct Bonita case: the JSON-formatted finance data and the readiness flag. The workflow **must wait** for the successful submission before Finance creates the payroll profile. This waiting/gateway logic is part of the Bonita BPMN and has **not** been implemented by the Flask web service. DBY remains unchanged.
 
 **Important:** The current form is a demonstration prototype, not a secure production payroll solution. Use **fictional finance information only**. Before real deployment, use HTTPS, persistent expiring single-use invitation tokens, appropriate access controls, a secure BDM/schema for finance records, audit logging without sensitive data, and appropriate payroll privacy/security controls. Do not put real bank details in a general-purpose string case variable.
+
+
+## Bonita Studio progress (24 October 2026)
+
+The simplified process **QNAB Automation - APE** currently has this path:
+
+1. Prepare Employment Contract (Legal Team human task)
+2. Send physical Contract to Employee (HR human task)
+3. Receive and Upload Signed Contract (HR human task)
+4. Register Signed Contract (service task; REST POST `/api/contracts/register`)
+5. Create Staff Number (HR human task)
+6. Send Finance Form Link (service task; REST POST `/api/finance/invite`)
+7. Create Payroll Profile (Finance human task)
+8. End
+
+The intermediate finance message catch event was removed to keep the demonstration focused. **This means the payroll task is currently reached immediately after the invitation service task, not automatically held until form submission.** The finance-submission prerequisite still requires an enforceable check before the process can be called end-to-end complete.
+
+### Configured Bonita data and forms
+
+- Imported BDM package `com.qnab.onboarding` with `Contract`, `KycDeclaration`, `Offer`, `OnboardingCase`, and `Prospect`.
+- Business variables `onboardingCase` and `prospect` initialized using their respective DAO `newInstance()` methods.
+- Legal task `Prepare Employment Contract` has a `prospectInput` complex contract, with six auto-generated update operations: firstName, lastName, preferredName, dateOfBirth, email, phone. The generated UI Designer form's `formOutput` maps these fields into `prospectInput`.
+- Process document `signedContract` was created for HR to upload the scanned signed contract. Verify its upload form and document operation in a live run.
+- Finance invitation connector payload configured to send `case_id` and `email` from `processInstanceId` and `prospect.email`. Flask accepts either `email` or `employee_email` as of this update.
+
+### Outstanding integration checks
+
+- **Authentication:** Flask POST endpoints require `X-Integration-Key`. The Bonita REST connector must send this header; otherwise Flask returns HTTP 401. Do not place real secrets in this public repository.
+- **BDM mapping:** Flask contract endpoint currently writes STRING case variables rather than `Contract.signedornot`. Finance submission similarly writes STRING case variables rather than `OnboardingCase.financeDetailsReceived` or a secure finance-data business object. These are **not equivalent** and must be mapped/implemented before claiming the BDM is updated.
+- **Data completeness:** Current `Contract` BDM fields do not include a contract PDF reference. Document linkage must be verified through the Bonita process document or a suitable business mapping.
+- **Finance ordering:** Without the removed message catch event, the payroll task needs a verified guard/validation before completion. Do not claim Bonita automatically waits for employee submission.
+- **Runtime:** Resolve the remaining red Bonita validation markers, configure local Flask/SMTP and Bonita API credentials, and perform actual end-to-end tests. No successful live test has been established yet.
+- **Privacy:** Finance form is demonstration-only. Use fictional bank details; do not use real payroll information in this prototype.
 
 ## Development setup
 
