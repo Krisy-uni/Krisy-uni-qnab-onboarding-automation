@@ -104,7 +104,7 @@ def finance_invite():
         return fail("Unauthorized", 401)
     body = request.get_json(silent=True) or {}
     case_id = positive_id(body.get("case_id"))
-    recipient = str(body.get("employee_email", "")).strip()
+    recipient = str(body.get("employee_email") or body.get("email") or "").strip()
     if not case_id or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
         return fail("Valid case_id and employee_email required")
     if not os.getenv("FINANCE_DATA_VARIABLE") or not os.getenv("FINANCE_READY_VARIABLE"):
