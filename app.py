@@ -105,7 +105,7 @@ def finance_invite():
     body = request.get_json(silent=True) or {}
     case_id = positive_id(body.get("case_id"))
     recipient = str(body.get("employee_email", "")).strip()
-    if not case_id or not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", recipient):
+    if not case_id or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
         return fail("Valid case_id and employee_email required")
     if not os.getenv("FINANCE_DATA_VARIABLE") or not os.getenv("FINANCE_READY_VARIABLE"):
         return fail("Finance case variable mappings are not configured", 503)
@@ -149,7 +149,7 @@ def finance_form(token):
         return render_template_string(FORM)
     data = {field: request.form.get(field, "").strip()
             for field in ("account_name", "bank_name", "bsb", "account_number")}
-    if not data["account_name"] or not data["bank_name"] or not re.fullmatch(r"\\d{6}", data["bsb"]) or not re.fullmatch(r"\\d{4,12}", data["account_number"]):
+    if not data["account_name"] or not data["bank_name"] or not re.fullmatch(r"\d{6}", data["bsb"]) or not re.fullmatch(r"\d{4,12}", data["account_number"]):
         return "Please provide valid details.", 400
     try:
         with bonita() as client:
