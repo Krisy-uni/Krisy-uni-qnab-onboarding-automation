@@ -20,7 +20,70 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 # Restarting Flask invalidates pending links. Replace with persistent token storage
 # if deploying beyond a short controlled demonstration.
 invitations = {}
+FORM = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QNAB Employee Finance Form</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f6f8;
+            padding: 40px;
+        }
+        .container {
+            max-width: 480px;
+            margin: auto;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+        }
+        label {
+            display: block;
+            margin-top: 18px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            margin-top: 6px;
+        }
+        button {
+            margin-top: 24px;
+            padding: 12px;
+            width: 100%;
+            background: #245b47;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>QNAB Employee Finance Form</h2>
+        <p>Please provide your bank details for payroll setup.</p>
 
+        <form method="POST">
+            <label>Account Name</label>
+            <input name="account_name" required>
+
+            <label>Bank Name</label>
+            <input name="bank_name" required>
+
+            <label>BSB (6 digits)</label>
+            <input name="bsb" pattern="[0-9]{6}" required>
+
+            <label>Account Number</label>
+            <input name="account_number" pattern="[0-9]{4,12}" required>
+
+            <button type="submit">Submit Finance Details</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 def fail(message, status=400):
     return jsonify({"error": message}), status
@@ -99,45 +162,45 @@ def email_invitation(recipient, link):
 
 @app.post("/api/finance/invite")
 def finance_invite():
-    """Bonita APE branch invokes this endpoint with the case ID and employee email."""
+    """Bonita invokes this endpoint with the case ID and employee email."""
     if not access_allowed():
         return fail("Unauthorized", 401)
+
     body = request.get_json(silent=True) or {}
+    print("FINANCE INVITE DEBUG:", "content_type=", request.content_type, "body=", body, flush=True)
     case_id = positive_id(body.get("case_id"))
     recipient = str(body.get("employee_email") or body.get("email") or "").strip()
+
     if not case_id or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
         return fail("Valid case_id and employee_email required")
+
     if not os.getenv("FINANCE_DATA_VARIABLE") or not os.getenv("FINANCE_READY_VARIABLE"):
         return fail("Finance case variable mappings are not configured", 503)
+
     try:
         with bonita() as client:
             client.case(case_id)
+
         token = secrets.token_urlsafe(32)
-        link = os.getenv("PUBLIC_BASE_URL", "http://localhost:5000").rstrip("/") + "/finance/" + token
-        email_invitation(recipient, link)
-        invitations[token] = {"case_id": case_id, "email": recipient, "submitted": False}
-        return jsonify({"case_id": case_id, "email_sent": True}), 200
+        link = os.getenv(
+            "PUBLIC_BASE_URL", "http://localhost:5001"
+        ).rstrip("/") + "/finance/" + token
+
+        invitations[token] = {
+            "case_id": case_id,
+            "email": recipient,
+            "submitted": False
+        }
+        print("FINANCE FORM LINK:", link, flush=True)
+        return jsonify({
+            "case_id": case_id,
+            "email_sent": False,
+            "form_link": link
+        }), 200
+
     except (BonitaError, RuntimeError, OSError, smtplib.SMTPException):
-        app.logger.exception("Unable to send finance form invitation")
+        app.logger.exception("Unable to create finance form invitation")
         return fail("Finance invitation failed; see server logs", 502)
-
-
-FORM = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QNAB Finance Form</title><style>
-body{font:16px system-ui;max-width:550px;margin:3rem auto;padding:1rem;color:#264f42}
-label{display:block;margin:1rem 0}input{display:block;width:100%;padding:.65rem;box-sizing:border-box}
-button{background:#264f42;color:white;padding:.8rem 1.4rem;border:0;border-radius:5px}
-</style></head><body><h1>Employee Finance Form</h1>
-<p>Prototype only — use fictional bank details, not real ones.</p>
-<form method="post">
-<label>Account holder name<input name="account_name" required maxlength="100"></label>
-<label>Bank name<input name="bank_name" required maxlength="100"></label>
-<label>BSB (6 digits)<input name="bsb" pattern="[0-9]{6}" required></label>
-<label>Account number (4–12 digits)<input name="account_number" pattern="[0-9]{4,12}" required></label>
-<button type="submit">Submit</button></form></body></html>"""
-
-
 @app.route("/finance/<token>", methods=["GET", "POST"])
 def finance_form(token):
     record = invitations.get(token)
@@ -161,12 +224,34 @@ def finance_form(token):
             client.put_string_variable(case_id, os.environ["FINANCE_DATA_VARIABLE"],
                                        json.dumps(data))
             client.put_string_variable(case_id, os.environ["FINANCE_READY_VARIABLE"], "true")
+            client.send_message(case_id)
         record["submitted"] = True
         return "Finance details submitted to Bonita successfully.", 200
     except (BonitaError, KeyError):
         app.logger.exception("Bonita finance case update failed")
         return "Unable to save data to Bonita. Please retry.", 502
+@app.get("/finance-preview")
+def finance_preview():
+    return FORM
+@app.get("/test-finance-link/<int:case_id>")
+def test_finance_link(case_id):
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        abort(403)
 
+    with bonita() as client:
+        client.case(case_id)
+
+    token = secrets.token_urlsafe(32)
+    invitations[token] = {
+        "case_id": case_id,
+        "email": "demo@example.com",
+        "submitted": False
+    }
+    
+    return jsonify({
+        "case_id": case_id,
+        "form_link": "http://localhost:5001/finance/" + token
+    })
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=False)

@@ -38,6 +38,7 @@ class BonitaClient:
             result = self.session.request(
                 method, self.base + "/API/" + path.lstrip("/"), timeout=15, **kwargs
             )
+            print("BONITA API:", method, path, "STATUS:", result.status_code, "RESPONSE:", result.text[:500], flush=True)
             result.raise_for_status()
             return result.json() if result.content else None
         except (requests.RequestException, ValueError) as exc:
@@ -61,3 +62,19 @@ class BonitaClient:
             raise BonitaError(f"Case variable {name} is not java.lang.String")
         return self.request("PUT", f"bpm/caseVariable/{case_id}/{name}",
                             json={"type": "java.lang.String", "value": value})
+    def send_message(self, case_id):
+        payload = {
+            "messageName": "FinanceFormSubmitted",
+            "targetProcess": "QNAB Automation- APE",
+            "correlations": {
+                "caseId": {
+                    "type": "java.lang.String",
+                    "value": str(case_id)
+                }
+            }
+        }
+        return self.request(
+            "POST",
+            "bpm/message",
+            json=payload
+        )
